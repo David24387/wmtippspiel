@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WM 2026 Tippspiel</title>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Montserrat', Arial, sans-serif; }
+    body { background: transparent; min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 0; color: #111; }
+    .card { width: 100%; max-width: 820px; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: none; }
+    .header { padding: 28px 24px; background: linear-gradient(to right, #144c9f, #0c7ac5); color: #fff; }
+    .header h1 { font-size: 30px; margin-bottom: 6px; }
+    .header p { font-size: 16px; opacity: 0.95; }
+    .content { padding: 20px; }
+    .user-box, .status-box, .info-box { background: #f5f7fb; border-radius: 16px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px; color: #333; }
+    .info-box { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }
+    .status-box.error { background: #fff0f0; color: #a10000; border: 1px solid #ffd1d1; }
+    .status-box.success { background: #edf9f1; color: #0f6b2f; border: 1px solid #ccebd5; }
+    .toolbar { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; margin-bottom: 18px; }
+    select, button, input { padding: 12px 14px; border-radius: 12px; border: 1px solid #ccc; font-size: 15px; outline: none; }
+    button { border: none; background: #111; color: #fff; font-weight: 700; cursor: pointer; }
+    button.secondary { background: #eef3f8; color: #111; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .section-title { font-size: 19px; margin: 18px 0 12px; }
+    .match-list { display: flex; flex-direction: column; gap: 12px; }
+    .match { border: 1px solid #e6e6e6; border-radius: 18px; padding: 16px; background: #fff; }
+    .match-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; color: #666; font-size: 13px; }
+    .badge { display: inline-flex; align-items: center; justify-content: center; padding: 6px 10px; border-radius: 999px; background: #eef3f8; font-weight: 700; color: #333; }
+    .teams { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; margin-bottom: 14px; }
+    .team { font-weight: 700; line-height: 1.25; }
+    .team:last-child { text-align: right; }
+    .score { font-weight: 800; font-size: 18px; background: #f2f5f8; padding: 8px 10px; border-radius: 12px; min-width: 58px; text-align: center; }
+    .tip-row { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: center; }
+    .tip-row input { width: 100%; text-align: center; font-weight: 700; }
+    .tip-row span { color: #666; font-size: 14px; }
+    .points { display: inline-flex; justify-content: center; align-items: center; min-width: 52px; height: 38px; border-radius: 12px; background: #eef3f8; font-weight: 800; }
+    .locked { opacity: 0.75; }
+    .leaderboard { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 16px; margin-top: 8px; font-size: 14px; }
+    .leaderboard th, .leaderboard td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
+    .leaderboard th { background: #f5f7fb; }
+    .leaderboard tr:last-child td { border-bottom: none; }
+    .empty { padding: 18px; border-radius: 16px; background: #f5f7fb; color: #555; }
+    .small { color: #666; font-size: 13px; }
+
+    @media (max-width: 680px) {
+      .toolbar, .info-box { grid-template-columns: 1fr; }
+      .teams { grid-template-columns: 1fr; }
+      .score, .team, .team:last-child { text-align: left; }
+      .tip-row { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>WM 2026 Tippspiel</h1>
+      <p>Spiele automatisch laden, Tipps speichern, Punkte und Rangliste berechnen.</p>
+    </div>
+
+    <div class="content">
+      <div class="user-box" id="userBox">User wird erkannt...</div>
+
+      <div class="info-box">
+        <div>
+          <strong>Datenquelle:</strong> OpenLigaDB<br />
+          <span class="small">Tipps werden in dieser Demo lokal gespeichert. Fürs Intranet kannst du unten auf Backend-Speicherung umstellen.</span>
+        </div>
+        <button class="secondary" onclick="clearMyTips()">Meine Tipps löschen</button>
+      </div>
+
+      <div class="toolbar">
+        <select id="leagueSelect" onchange="loadRound()">
+          <option value="wm26">WM 2026</option>
+          <option value="wm2026">WM 2026 USA</option>
+        </select>
+        <select id="roundSelect" onchange="loadRound()"></select>
+        <button onclick="loadRound()">Aktualisieren</button>
+      </div>
+
+      <div id="statusBox" class="status-box" style="display:none;"></div>
+
+      <h2 class="section-title">Meine Tipps</h2>
+      <div id="matchList" class="match-list"></div>
+
+      <h2 class="section-title">Rangliste</h2>
+      <table class="leaderboard" id="leaderboard"></table>
+    </div>
+  </div>
+
+  <script>
+    /******************************************************************
+     * KONFIGURATION
+     ******************************************************************/
+    const CONFIG = {
+      season: 2026,
+      defaultLeagueShortcut: "wm26",
+      defaultRound: 1,
+
+      // Für Intranet-Produktivbetrieb auf true setzen und Endpunkte bereitstellen.
+      useBackendForTips: false,
+      meEndpoint: "/api/me",
+      tipsEndpoint: "/api/wm-tips",
+
+      // Nach Anpfiff keine Änderungen mehr erlauben.
+      lockTipsAfterKickoff: true
+    };
+
+    // OpenLigaDB nutzt GroupOrderId. Für die WM sind das Runden/Gruppierungen.
+    const ROUND_LABELS = {
+      1: "Gruppenphase 1 / 1. Runde",
+      2: "Gruppenphase 2 / 2. Runde",
+      3: "Gruppenphase 3 / 3. Runde",
+      4: "Achtelfinale / nächste Runde",
+      5: "Viertelfinale / nächste Runde",
+      6: "Halbfinale / nächste Runde",
+      7: "Spiel um Platz 3 / nächste Runde",
+      8: "Finale"
+    };
+
+    let currentUser = null;
+    let currentMatches = [];
+    let currentTips = [];
+
+    /******************************************************************
+     * USER-ERKENNUNG
+     * 1. window.currentUser aus dem Intranet
+     * 2. optional /api/me
+     * 3. Demo-Fallback
+     ******************************************************************/
+    async function detectUser() {
+      if (window.currentUser && window.currentUser.id) {
+        currentUser = window.currentUser;
+        renderUser();
+        return;
+      }
+
+      try {
+        const response = await fetch(CONFIG.meEndpoint, { credentials: "include" });
+        if (response.ok) {
+          currentUser = await response.json();
+          renderUser();
+          return;
+        }
+      } catch (error) {}
+
+      currentUser = {
+        id: "demo.user",
+        name: "Demo User",
+        email: "demo.user@intranet.local"
+      };
+      renderUser();
+    }
+
+    function renderUser() {
+      document.getElementById("userBox").innerHTML =
+        `<strong>Angemeldet als:</strong> ${escapeHtml(currentUser.name || currentUser.id)}`;
+    }
+
+    /******************************************************************
+     * INITIALISIERUNG
+     ******************************************************************/
+    function initControls() {
+      document.getElementById("leagueSelect").value = CONFIG.defaultLeagueShortcut;
+
+      const roundSelect = document.getElementById("roundSelect");
+      roundSelect.innerHTML = Object.entries(ROUND_LABELS).map(([value, label]) => {
+        const selected = Number(value) === CONFIG.defaultRound ? "selected" : "";
+        return `<option value="${value}" ${selected}>${label}</option>`;
+      }).join("");
+    }
+
+    async function init() {
+      initControls();
+      await detectUser();
+      await loadRound();
+    }
+
+    /******************************************************************
+     * OPENLIGADB: WM-SPIELE LADEN
+     ******************************************************************/
+    async function loadRound() {
+      hideStatus();
+
+      const league = document.getElementById("leagueSelect").value;
+      const round = document.getElementById("roundSelect").value;
+      const url = `https://api.openligadb.de/getmatchdata/${league}/${CONFIG.season}/${round}`;
+
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("OpenLigaDB nicht erreichbar");
+
+        currentMatches = await response.json();
+        currentTips = await loadTips(league, round);
+
+        renderMatches(league, round);
+        renderLeaderboard();
+      } catch (error) {
+        showStatus("WM-Spieldaten konnten nicht geladen werden.", "error");
+        document.getElementById("matchList").innerHTML = `<div class="empty">Keine WM-Spieldaten verfügbar.</div>`;
+        renderLeaderboard();
+      }
+    }
+
+    /******************************************************************
+     * TIPPS SPEICHERN / LADEN
+     * Demo: localStorage
+     * Produktiv: eigenes Backend über /api/wm-tips
+     ******************************************************************/
+    async function loadTips(league, round) {
+      if (CONFIG.useBackendForTips) {
+        const url = `${CONFIG.tipsEndpoint}?league=${league}&season=${CONFIG.season}&round=${round}`;
+        const response = await fetch(url, { credentials: "include" });
+        if (!response.ok) return [];
+        return await response.json();
+      }
+
+      return JSON.parse(localStorage.getItem(getLocalStorageKey(league, round)) || "[]");
+    }
+
+    async function saveTip(matchId, homeTip, awayTip) {
+      const league = document.getElementById("leagueSelect").value;
+      const round = document.getElementById("roundSelect").value;
+
+      const tip = {
+        userId: currentUser.id,
+        userName: currentUser.name || currentUser.id,
+        matchId: String(matchId),
+        league,
+        season: CONFIG.season,
+        round: Number(round),
+        homeTip: Number(homeTip),
+        awayTip: Number(awayTip),
+        updatedAt: new Date().toISOString()
+      };
+
+      if (CONFIG.useBackendForTips) {
+        const response = await fetch(CONFIG.tipsEndpoint, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(tip)
+        });
+
+        if (!response.ok) {
+          showStatus("Tipp konnte nicht gespeichert werden.", "error");
+          return;
+        }
+      } else {
+        const key = getLocalStorageKey(league, round);
+        const tips = JSON.parse(localStorage.getItem(key) || "[]");
+        const existingIndex = tips.findIndex(item =>
+          item.userId === tip.userId && String(item.matchId) === String(tip.matchId)
+        );
+
+        if (existingIndex >= 0) tips[existingIndex] = tip;
+        else tips.push(tip);
+
+        localStorage.setItem(key, JSON.stringify(tips));
+      }
+
+      currentTips = await loadTips(league, round);
+      renderMatches(league, round);
+      renderLeaderboard();
+      showStatus("Tipp gespeichert.", "success");
+    }
+
+    function clearMyTips() {
+      const league = document.getElementById("leagueSelect").value;
+      const round = document.getElementById("roundSelect").value;
+      const key = getLocalStorageKey(league, round);
+      const tips = JSON.parse(localStorage.getItem(key) || "[]");
+      const remainingTips = tips.filter(tip => tip.userId !== currentUser.id);
+      localStorage.setItem(key, JSON.stringify(remainingTips));
+      currentTips = remainingTips;
+      renderMatches(league, round);
+      renderLeaderboard();
+      showStatus("Deine Tipps für diese Runde wurden gelöscht.", "success");
+    }
+
+    function getLocalStorageKey(league, round) {
+      return `wm-tipps-${league}-${CONFIG.season}-${round}`;
+    }
+
+    /******************************************************************
+     * DARSTELLUNG
+     ******************************************************************/
+    function renderMatches(league, round) {
+      const matchList = document.getElementById("matchList");
+
+      if (!currentMatches || currentMatches.length === 0) {
+        matchList.innerHTML = `<div class="empty">Keine Spiele für diese Runde gefunden. Prüfe ggf. oben die Datenquelle WM 2026 / WM 2026 USA.</div>`;
+        return;
+      }
+
+      matchList.innerHTML = currentMatches.map(match => {
+        const matchId = match.matchID;
+        const myTip = currentTips.find(tip =>
+          tip.userId === currentUser.id && String(tip.matchId) === String(matchId)
+        );
+
+        const result = getFinalResult(match);
+        const points = myTip && result ? calculatePoints(myTip, result) : null;
+        const locked = isLocked(match);
+        const kickoff = formatKickoff(match.matchDateTime);
+        const groupName = match.group?.groupName || ROUND_LABELS[round] || `Runde ${round}`;
+
+        return `
+          <div class="match ${locked ? "locked" : ""}">
+            <div class="match-top">
+              <span>${kickoff}</span>
+              <span class="badge">${escapeHtml(groupName)}</span>
+              <span>${locked ? "Tipps gesperrt" : "Tipp möglich"}</span>
+            </div>
+
+            <div class="teams">
+              <div class="team">${escapeHtml(match.team1?.teamName || "Team 1")}</div>
+              <div class="score">${result ? `${result.home}:${result.away}` : "-:-"}</div>
+              <div class="team">${escapeHtml(match.team2?.teamName || "Team 2")}</div>
+            </div>
+
+            <div class="tip-row">
+              <input type="number" min="0" id="home-${matchId}" value="${myTip?.homeTip ?? ""}" placeholder="Heim" ${locked ? "disabled" : ""} />
+              <span>:</span>
+              <input type="number" min="0" id="away-${matchId}" value="${myTip?.awayTip ?? ""}" placeholder="Gast" ${locked ? "disabled" : ""} />
+              <button onclick="handleSaveTip('${matchId}')" ${locked ? "disabled" : ""}>Speichern</button>
+            </div>
+
+            <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center; gap:12px;">
+              <span class="small">${result ? "Ergebnis vorhanden" : "Noch kein Ergebnis"}</span>
+              <span class="points">${points === null ? "–" : points + " P"}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderLeaderboard() {
+      const table = document.getElementById("leaderboard");
+      const rows = buildLeaderboard();
+
+      if (rows.length === 0) {
+        table.innerHTML = `<tr><td>Noch keine Tipps vorhanden.</td></tr>`;
+        return;
+      }
+
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Platz</th>
+            <th>Name</th>
+            <th>Punkte</th>
+            <th>Tipps</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row, index) => `
+            <tr>
+              <td>${index + 1}</td>
+              <td>${escapeHtml(row.userName)}</td>
+              <td><strong>${row.points}</strong></td>
+              <td>${row.tipCount}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      `;
+    }
+
+    /******************************************************************
+     * PUNKTELOGIK
+     * Exaktes Ergebnis: 4 Punkte
+     * Richtige Tordifferenz: 3 Punkte
+     * Richtige Tendenz: 2 Punkte
+     ******************************************************************/
+    function calculatePoints(tip, result) {
+      const tipHome = Number(tip.homeTip);
+      const tipAway = Number(tip.awayTip);
+      const realHome = Number(result.home);
+      const realAway = Number(result.away);
+
+      if (tipHome === realHome && tipAway === realAway) return 4;
+      if ((tipHome - tipAway) === (realHome - realAway)) return 3;
+      if (getTendency(tipHome, tipAway) === getTendency(realHome, realAway)) return 2;
+      return 0;
+    }
+
+    function getTendency(home, away) {
+      if (home > away) return "home";
+      if (home < away) return "away";
+      return "draw";
+    }
+
+    function buildLeaderboard() {
+      const users = {};
+
+      currentTips.forEach(tip => {
+        const match = currentMatches.find(item => String(item.matchID) === String(tip.matchId));
+        const result = match ? getFinalResult(match) : null;
+        const points = result ? calculatePoints(tip, result) : 0;
+
+        if (!users[tip.userId]) {
+          users[tip.userId] = {
+            userName: tip.userName || tip.userId,
+            points: 0,
+            tipCount: 0
+          };
+        }
+
+        users[tip.userId].points += points;
+        users[tip.userId].tipCount += 1;
+      });
+
+      return Object.values(users).sort((a, b) => b.points - a.points || a.userName.localeCompare(b.userName));
+    }
+
+    /******************************************************************
+     * HELFER
+     ******************************************************************/
+    function handleSaveTip(matchId) {
+      const homeTip = document.getElementById(`home-${matchId}`).value;
+      const awayTip = document.getElementById(`away-${matchId}`).value;
+
+      if (homeTip === "" || awayTip === "") {
+        showStatus("Bitte beide Tipp-Felder ausfüllen.", "error");
+        return;
+      }
+
+      saveTip(matchId, homeTip, awayTip);
+    }
+
+    function getFinalResult(match) {
+      if (!match.matchResults || match.matchResults.length === 0) return null;
+
+      const finalResult =
+        match.matchResults.find(result => result.resultTypeID === 2) ||
+        match.matchResults[match.matchResults.length - 1];
+
+      if (!finalResult) return null;
+
+      return {
+        home: finalResult.pointsTeam1,
+        away: finalResult.pointsTeam2
+      };
+    }
+
+    function isLocked(match) {
+      if (!CONFIG.lockTipsAfterKickoff) return false;
+      if (!match.matchDateTime) return false;
+      return new Date(match.matchDateTime).getTime() <= Date.now();
+    }
+
+    function formatKickoff(value) {
+      if (!value) return "Termin offen";
+      return new Date(value).toLocaleString("de-DE", {
+        weekday: "short",
+        day: "2-digit",
+        month: "2-digit",
+        year: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    function showStatus(message, type) {
+      const box = document.getElementById("statusBox");
+      box.innerText = message;
+      box.className = `status-box ${type || ""}`;
+      box.style.display = "block";
+      setTimeout(hideStatus, 3500);
+    }
+
+    function hideStatus() {
+      const box = document.getElementById("statusBox");
+      box.innerText = "";
+      box.style.display = "none";
+      box.className = "status-box";
+    }
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    init();
+  </script>
+</body>
+</html>
