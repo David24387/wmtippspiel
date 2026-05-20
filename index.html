@@ -294,9 +294,11 @@
   </div>
 
   <script>
+  console.log("TEST: Script läuft");
+
   window.addEventListener("message", function(event) {
     console.log("MESSAGE VON STAFFBASE:", event.origin, event.data);
-  });
+});
 
   console.log("WINDOW STAFFBASE:", window.staffbase);
   console.log("WINDOW CURRENTUSER:", window.currentUser);
