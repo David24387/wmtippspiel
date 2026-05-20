@@ -294,6 +294,15 @@
   </div>
 
   <script>
+  window.addEventListener("message", function(event) {
+    console.log("MESSAGE VON STAFFBASE:", event.origin, event.data);
+  });
+
+  console.log("WINDOW STAFFBASE:", window.staffbase);
+  console.log("WINDOW CURRENTUSER:", window.currentUser);
+  console.log("WINDOW USER:", window.user);
+  console.log("WINDOW SB:", window.sb);
+  console.log("WINDOW STAFFBASE SDK:", window.Staffbase);
     /**************************************************************
      * WICHTIG FÜR EUER INTRANET
      *
@@ -335,7 +344,7 @@
       tipsEndpoint: "/api/wm-tips",
 
       // Muss euer Intranet bereitstellen, wenn User über Backend erkannt werden soll.
-      meEndpoint: "/api/me",
+      meEndpoint: "",
 
       // Tipps nach Anpfiff sperren.
       lockTipsAfterKickoff: true,
@@ -405,24 +414,26 @@
       }
 
       // 3. Backend-Variante: internes /api/me liefert eingeloggten User.
+      if (CONFIG.meEndpoint) {
       try {
-        const response = await fetch(CONFIG.meEndpoint, {
-          credentials: "include",
-          cache: "no-store"
-        });
+      const response = await fetch(CONFIG.meEndpoint, {
+      credentials: "include",
+      cache: "no-store"
+    });
 
-        if (response.ok) {
-          const apiUser = await response.json();
+      if (response.ok) {
+      const apiUser = await response.json();
 
-          if (apiUser && apiUser.id) {
-            currentUser = normalizeUser(apiUser);
-            renderUser();
-            return;
-          }
-        }
-      } catch (error) {
-        // Kein /api/me vorhanden oder nicht erreichbar.
+      if (apiUser && apiUser.id) {
+        currentUser = normalizeUser(apiUser);
+        renderUser();
+        return;
       }
+    }
+  } catch (error) {
+    // Kein User-Endpoint erreichbar.
+  }
+}
 
       // 4. Nur als Fallback.
       currentUser = {
